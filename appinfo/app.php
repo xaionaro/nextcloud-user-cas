@@ -45,20 +45,27 @@ if (OCP\App::isEnabled('user_cas')) {
 	if( (isset($_GET['app']) && $_GET['app'] == 'user_cas') || $force_login ) {
 
 		if (OC_USER_CAS :: initialized_php_cas()) {
+			error_log("forceAuthentication");
 			phpCAS::forceAuthentication();
+			error_log("/forceAuthentication");
 
 			$user = phpCAS::getUser();
 			$application = new \OC\Core\Application();
-			$loginController = $application->getContainer()->query('LoginController');
-			$loginController->tryLogin($user,NULL,NULL);
+			$loginController = $application->getContainer()->query('OC\Core\Controller\LoginController');
+			$response = $loginController->tryLogin($user,NULL,NULL, false);
+			error_log('CAS success: '.$user);
+			return $response;
 
 			if (isset($_SERVER["QUERY_STRING"]) && !empty($_SERVER["QUERY_STRING"]) && $_SERVER["QUERY_STRING"] != 'app=user_cas') {
-				header( 'Location: ' . OC::$WEBROOT . '/?' . $_SERVER["QUERY_STRING"]);
+				$uri = OC::$WEBROOT . '/?' . $_SERVER["QUERY_STRING"];
+				//error_log('Redirecting to:'. $uri);
+				header( 'Location: ' . $uri);
 				exit();
 			}
 		}
 
 		OC::$REQUESTEDAPP = '';
+		//error_log('OC_Util::redirectToDefaultPage()');
 		OC_Util::redirectToDefaultPage();
 	}
 
@@ -77,16 +84,20 @@ function shouldEnforceAuthentication()
 		return false;
 	}
 
-	if (OCP\Config::getAppValue('user_cas', 'cas_force_login', false) !== 'on') {
+	/*if (OCP\Config::getAppValue('user_cas', 'cas_force_login', false) !== 'on') {
+		return false;
+	}*/
+
+	if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
 		return false;
 	}
 
-	if (OCP\User::isLoggedIn() || isset($_GET['admin_login'])) {
+	if (OCP\User::isLoggedIn() || isset($_GET['admin_login']) || isset($_GET['access_token'])) {
 		return false;
 	}
 
 	$script = basename($_SERVER['SCRIPT_FILENAME']);
-	return !in_array(
+	if (in_array(
 		$script,
 		array(
 			'cron.php',
@@ -94,6 +105,12 @@ function shouldEnforceAuthentication()
 			'remote.php',
 			'status.php',
 		)
-	);
+	)) {
+		return false;
+	}
+
+	//error_log(serialize($_SERVER));
+
+	return true;
 }
 

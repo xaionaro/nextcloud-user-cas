@@ -49,13 +49,13 @@ class OC_USER_CAS extends OC_User_Backend {
 	}
 
 	public function __construct() {
-		$this->autocreate = OCP\Config::getAppValue('user_cas', 'cas_autocreate', true);
-		$this->cas_link_to_ldap_backend = \OCP\Config::getAppValue('user_cas', 'cas_link_to_ldap_backend', false);
-		$this->updateUserData = OCP\Config::getAppValue('user_cas', 'cas_update_user_data', true);
+		$this->autocreate = true; //OCP\Config::getAppValue('user_cas', 'cas_autocreate', true);
+		$this->cas_link_to_ldap_backend = false;//\OCP\Config::getAppValue('user_cas', 'cas_link_to_ldap_backend', false);
+		$this->updateUserData = true;//OCP\Config::getAppValue('user_cas', 'cas_update_user_data', true);
 		$this->defaultGroup = OCP\Config::getAppValue('user_cas', 'cas_default_group', '');
 		$this->protectedGroups = explode (',', str_replace(' ', '', OCP\Config::getAppValue('user_cas', 'cas_protected_groups', '')));
-		$this->mailMapping = OCP\Config::getAppValue('user_cas', 'cas_email_mapping', '');
-		$this->displayNameMapping = OCP\Config::getAppValue('user_cas', 'cas_displayName_mapping', '');
+		$this->mailMapping = 'email';//OCP\Config::getAppValue('user_cas', 'cas_email_mapping', '');
+		$this->displayNameMapping = 'full_name';//OCP\Config::getAppValue('user_cas', 'cas_displayName_mapping', '');
 		$this->groupMapping = OCP\Config::getAppValue('user_cas', 'cas_group_mapping', '');
 
 		self :: initialized_php_cas();
@@ -72,9 +72,13 @@ class OC_USER_CAS extends OC_User_Backend {
 			$php_cas_path=OCP\Config::getAppValue('user_cas', 'cas_php_cas_path', 'CAS.php');
 			$cas_service_url = OCP\Config::getAppValue('user_cas', 'cas_service_url', '');
 
+			$casHostname = 'login.mephi.ru';
+			$casPath     = '/';
+			$casCertPath = '/etc/ssl/certs/ca-certificates.crt';
+
 			if (!class_exists('phpCAS')) {
 				if (empty($php_cas_path)) $php_cas_path='CAS.php';
-				\OCP\Util::writeLog('cas',"Try to load phpCAS library ($php_cas_path)", \OCP\Util::DEBUG);
+				//\OCP\Util::writeLog('cas',"Try to load phpCAS library ($php_cas_path)", \OCP\Util::DEBUG);
 				include_once($php_cas_path);
 				if (!class_exists('phpCAS')) {
 					\OCP\Util::writeLog('cas','Fail to load phpCAS library !', \OCP\Util::ERROR);
@@ -85,7 +89,6 @@ class OC_USER_CAS extends OC_User_Backend {
 			if ($casDebugFile !== '') {
 				phpCAS::setDebug($casDebugFile);
 			}
-			
 			phpCAS::client($casVersion,$casHostname,(int)$casPort,$casPath,false);
 			
 			if (!empty($cas_service_url)) {
@@ -115,10 +118,12 @@ class OC_USER_CAS extends OC_User_Backend {
 
 	public function checkPassword($uid, $password) {
 		if (!self :: initialized_php_cas()) {
+			error_log('checkPassword(): !initialized_php_cas()');
 			return false;
 		}
 
 		if(!phpCAS::isAuthenticated()) {
+			error_log('checkPassword(): !phpCAS::isAuthenticated()');
 			return false;
 		}
 
@@ -151,10 +156,95 @@ class OC_USER_CAS extends OC_User_Backend {
 	* Sets the display name for by using the CAS attribute specified in the mapping
 	*
 	*/
-	public function setDisplayName($uid,$displayName) {
+	public function updateDisplayName($uid,$displayName) {
+		/*$application = new \OC\Core\Application();
+		//$application = new \OCP\AppFramework\App('user_cas');
+
+		$container   = $application->getContainer();
+		$container->registerService('isAdmin', function() { return true; });
+		$container->registerService('fromMailAddress', function() { return \OCP\Util::getDefaultEmailAddress('no-reply'); });
+
+		$usersController = $container->query('OC\Settings\Controller\UsersController');
+
+		$usersController->setDisplayName($uid, $displayName);*/
+
+		/*$user = $usersController->userManager->get($uid);
+		$user->setDisplayName($displayName);*/
+
+		/*$coreUserManager = \OC::$server->getUserManager();
+		$user = $coreUserManager->get($uid);
+		$user->setDisplayName($displayName);*/
+		/*
 		$udb = new OC_User_Database;
+		$udb->setDisplayName($uid,$displayName);
+		*/
+		$udb = new OC\User\Database;
 		$udb->setDisplayName($uid,$displayName);
 	}
 
+	public function update_user($uid, $attributes) {
+		error_log('update_user');
+		\OCP\Util::writeLog('cas','Updating data of the user: '.$uid,\OCP\Util::DEBUG);
+		\OCP\Util::writeLog('cas','attr: '.implode(",",$attributes),\OCP\Util::DEBUG);
+
+		if(isset($attributes['cas_email'])) {
+			update_mail($uid, $attributes['cas_email']);
+		}
+		if (isset($attributes['cas_name'])) {
+			$this->updateDisplayName($uid, $attributes['cas_name']);
+		}
+		if (isset($attributes['cas_groups'])) {
+			update_groups($uid, $attributes['cas_groups'], $this->protectedGroups, false);
+		}
+		error_log('/update_user');
+	}
+}
+
+function update_mail($uid, $email) {
+	$config = \OC::$server->getConfig();
+	if ($email != $config->getUserValue($uid, 'settings', 'email', '')) {
+		$config->setUserValue($uid, 'settings', 'email', $email);
+		\OCP\Util::writeLog('cas','Set email "'.$email.'" for the user: '.$uid, \OCP\Util::DEBUG);
+	}
+}
+
+/*
+function update_name($uid, $name) {
+	\OCP\Util::writeLog('cas','Set Name -'.$name.'- for the user: '.$uid, \OCP\Util::DEBUG);
+	$casBackend = OC_USER_CAS::getInstance();
+	$casBackend->setDisplayName($uid, $name);
+}*/
+
+/**
+* Gets an array of groups and will try to add the group to OC and then add the user to the groups.
+* 
+*/
+function update_groups($uid, $groups, $protected_groups=array(), $just_created=false) {
+
+	if(!$just_created) {
+		$old_groups = OC_Group::getUserGroups($uid);
+		foreach($old_groups as $group) {
+			if(!in_array($group, $protected_groups) && !in_array($group, $groups)) {
+				OC_Group::removeFromGroup($uid,$group);
+				\OCP\Util::writeLog('cas','Removed "'.$uid.'" from the group "'.$group.'"', \OCP\Util::DEBUG);
+			}
+		}
+	}
+
+	foreach($groups as $group) {
+		if (preg_match( '/[^a-zA-Z0-9 _\.@\-]/', $group)) {
+			\OCP\Util::writeLog('cas','Invalid group "'.$group.'", allowed chars "a-zA-Z0-9" and "_.@-" ',\OCP\Util::DEBUG);
+		}
+		else {
+			if (!OC_Group::inGroup($uid, $group)) {
+				if (!OC_Group::groupExists($group)) {
+					OC_Group::createGroup($group);
+					\OCP\Util::writeLog('cas','New group created: '.$group, \OCP\Util::DEBUG);
+				}
+				OC_Group::addToGroup($uid, $group);
+				\OCP\Util::writeLog('cas','Added "'.$uid.'" to the group "'.$group.'"', \OCP\Util::DEBUG);
+			}
+		}
+	}
 }
 

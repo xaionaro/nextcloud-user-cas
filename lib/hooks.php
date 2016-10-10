@@ -77,14 +77,15 @@ class OC_USER_CAS_Hooks {
 
 						// after creating the user, fill the attributes
 						if($userDatabase->userExists($uid)) 
-							OC_USER_CAS_Hooks::update_user($uid,$attributes);
-						
+							OC_USER_CAS::getInstance()->update_user($uid, $attributes);
+
+						return true;
 					}
 				}
 
 				// try to update user attributes
 				if ($casBackend->updateUserData) 
-					OC_USER_CAS_Hooks::update_user($cas_uid,$attributes);
+					OC_USER_CAS::getInstance()->update_user($cas_uid, $attributes);
 
 				return true;
 			}
@@ -92,24 +93,8 @@ class OC_USER_CAS_Hooks {
 		return false;
 	}
 
-	static public function update_user($uid, $attributes) {
-
-		$casBackend = OC_USER_CAS::getInstance();
-
-		\OCP\Util::writeLog('cas','Updating data of the user: '.$uid,\OCP\Util::DEBUG);
-		\OCP\Util::writeLog('cas','attr: '.implode(",",$attributes),\OCP\Util::DEBUG);
-
-		if(isset($attributes['cas_email'])) {
-			update_mail($uid, $attributes['cas_email']);
-		}
-		if (isset($attributes['cas_name'])) {
-			update_name($uid, $attributes['cas_name']);
-		}
-		if (isset($attributes['cas_groups'])) {
-			update_groups($uid, $attributes['cas_groups'], $casBackend->protectedGroups, false);
-		}
-	}
-
+/*
+*/
 
 	static public function logout($parameters) {
 		if (\OC::$server->getConfig()->getAppValue('user_cas', 'cas_disable_logout', false)) {
@@ -124,51 +109,4 @@ class OC_USER_CAS_Hooks {
 		return true;
 	}
 
-}
-
-function update_mail($uid, $email) {
-	$config = \OC::$server->getConfig();
-	if ($email != $config->getUserValue($uid, 'settings', 'email', '')) {
-		$config->setUserValue($uid, 'settings', 'email', $email);
-		\OCP\Util::writeLog('cas','Set email "'.$email.'" for the user: '.$uid, \OCP\Util::DEBUG);
-	}
-}
-
-function update_name($uid, $name) {
-		\OCP\Util::writeLog('cas','Set Name -'.$name.'- for the user: '.$uid, \OCP\Util::DEBUG);
-		$casBackend = OC_USER_CAS::getInstance();
-		$casBackend->setDisplayName($uid, $name);
-}
-
-/**
-* Gets an array of groups and will try to add the group to OC and then add the user to the groups.
-* 
-*/
-function update_groups($uid, $groups, $protected_groups=array(), $just_created=false) {
-
-	if(!$just_created) {
-		$old_groups = OC_Group::getUserGroups($uid);
-		foreach($old_groups as $group) {
-			if(!in_array($group, $protected_groups) && !in_array($group, $groups)) {
-				OC_Group::removeFromGroup($uid,$group);
-				\OCP\Util::writeLog('cas','Removed "'.$uid.'" from the group "'.$group.'"', \OCP\Util::DEBUG);
-			}
-		}
-	}
-
-	foreach($groups as $group) {
-		if (preg_match( '/[^a-zA-Z0-9 _\.@\-]/', $group)) {
-			\OCP\Util::writeLog('cas','Invalid group "'.$group.'", allowed chars "a-zA-Z0-9" and "_.@-" ',\OCP\Util::DEBUG);
-		}
-		else {
-			if (!OC_Group::inGroup($uid, $group)) {
-				if (!OC_Group::groupExists($group)) {
-					OC_Group::createGroup($group);
-					\OCP\Util::writeLog('cas','New group created: '.$group, \OCP\Util::DEBUG);
-				}
-				OC_Group::addToGroup($uid, $group);
-				\OCP\Util::writeLog('cas','Added "'.$uid.'" to the group "'.$group.'"', \OCP\Util::DEBUG);
-			}
-		}
-	}
 }
