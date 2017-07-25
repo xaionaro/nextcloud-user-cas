@@ -45,7 +45,7 @@ if (OCP\App::isEnabled('user_cas')) {
 	if( (isset($_GET['app']) && $_GET['app'] == 'user_cas') || $force_login ) {
 
 		if (OC_USER_CAS :: initialized_php_cas()) {
-			error_log("forceAuthentication");
+			error_log("forceAuthentication: <".@$_GET['app']."> ".($force_login?'true':'false'));
 			phpCAS::forceAuthentication();
 			error_log("/forceAuthentication");
 
@@ -106,6 +106,10 @@ function shouldEnforceAuthentication()
 			'status.php',
 		)
 	)) {
+		return false;
+	}
+
+	if (strpos($_SERVER['DOCUMENT_URI'], '/index.php/s/') === 0) {
 		return false;
 	}
 
